@@ -41,9 +41,9 @@ class Mmts(object):
   def days(self):
     return set(mmt.time.date() for mmt in self.mmts)
 
-  def get_all(self, day, event, attr):
+  def get_all(self, day, event):
     for mmt in self.mmts:
-      if mmt.time.date() == day and mmt.event == event and attr in mmt.attrs:
+      if mmt.time.date() == day and mmt.event == event:
         yield mmt
 
 
@@ -54,26 +54,53 @@ def do_file(filename):
     mmts.add(Mmt.from_line(line))
 
 
-class Axis(collections.namedtuple('Axis', ['label'])):
-  def __new__(cls, label):
-    return super(Axis, cls).__new__(cls, label)
+class Axis(object):
+  def __init__(self, label):
+    self.label = label
 
 
-def numberify(x):
+def numberify(x, mmt):
   return re.sub('[^0-9.-]', '', x)
+
+
+def rate(field):
+  def rate_fn(x, mmt):
+    x = numberify(x, mmt)
+    t = numberify(mmt.attrs[field], mmt)
+
+    return float(x) / float(t)
+  return rate_fn
+
+
+def active_inactive(x, mmt):
+  return 1.0 if x == 'active' else 0.0
+
+
+class Attr(object):
+  def __init__(self, name, transform=numberify, missing=None, label=None, shape='lines smooth bezier'):
+    self.name = name
+    self.transform = transform
+    self.missing = missing
+    self.label = label or self.name
+    self.shape = shape
+
+  def get(self, mmt):
+    if self.name not in mmt.attrs:
+      return self.missing
+    return self.transform(mmt.attrs[self.name], mmt)
 
 
 plots = []
 
 def plot(day, event, y1attrs, y1axis, y2attrs=[], y2axis=Axis(label='?')):
-  title = '%s -- %s' % (event, ', '.join(y1attrs + y2attrs))
+  title = '%s -- %s' % (event, ', '.join(a.name for a in y1attrs + y2attrs))
 
   day_str = day.strftime('%Y-%m-%d')
 
-  y2 = textwrap.dedent("""\
+  y2 = """\
       set y2label "{y2label}"
       set y2tics
-      """.format(y2label=y2axis.label))
+      """.format(y2label=y2axis.label)
 
   script = [textwrap.dedent("""\
       reset
@@ -88,7 +115,7 @@ def plot(day, event, y1attrs, y1axis, y2attrs=[], y2axis=Axis(label='?')):
       set autoscale
 
       set ylabel "{ylabel}"
-      {y2}
+{y2}
 
       set title "{title}"
       set key below
@@ -101,26 +128,58 @@ def plot(day, event, y1attrs, y1axis, y2attrs=[], y2axis=Axis(label='?')):
                  y2=y2 if y2attrs else ''))]
 
   script.append('plot ' + ','.join(
-    ['"-" using 1:2 with lines title "%s" smooth bezier' % attr for attr in y1attrs] +
-    ['"-" using 1:2 with lines title "%s" smooth bezier axes x1y2' % attr for attr in y2attrs]))
+    ['"-" using 1:2 with %s title "%s"' % (attr.shape, attr.label) for attr in y1attrs] +
+    ['"-" using 1:2 with %s title "%s" axes x1y2' % (attr.shape, attr.label) for attr in y2attrs]))
 
   for attr in y1attrs + y2attrs:
-    for mmt in mmts.get_all(day, event, attr):
-      script.append('%s,%s' % (mmt.time.strftime("%Y-%m-%d %H:%M:%S"), numberify(mmt.attrs[attr])))
+    for mmt in mmts.get_all(day, event):
+      value = attr.get(mmt)
+      if value is not None:
+        script.append('%s,%s' % (mmt.time.strftime("%Y-%m-%d %H:%M:%S"), value))
     script.append('e')
 
   plots.append('\n'.join(script))
 
 
 def make_plots(day):
-  plot(day, 'Battery', ['current_capacity', 'raw_max_capacity'], Axis(label='mAh'),
-                       ['current', 'charging_current'], Axis(label='mA'))
-  plot(day, 'Battery', ['level'], Axis(label='%'),
-                       ['voltage'], Axis(label='mV'))
-  plot(day, 'Battery', ['current', 'charging_current'], Axis(label='mA'),
-                       ['battery_temp'], Axis(label='C'))
+  plot(day, 'Battery', [Attr('current_capacity'), Attr('raw_max_capacity')],
+                       Axis(label='mAh'),
+                       [Attr('current'), Attr('charging_current')],
+                       Axis(label='mA'))
 
-  plot(day, 'Powerstat Energy Model', ['CPU Energy', 'SoC Energy', 'GPU Energy'], Axis(label='mJ'))
+  plot(day, 'Battery', [Attr('level')],
+                       Axis(label='%'),
+                       [Attr('voltage')],
+                       Axis(label='mV'))
+
+  plot(day, 'Battery', [Attr('current'), Attr('charging_current')],
+                       Axis(label='mA'),
+                       [Attr('battery_temp')],
+                        Axis(label='C'))
+
+  plot(day, 'Powerstat Energy Model', [Attr('CPU Energy', transform=rate('SampleTime')),
+                                       Attr('SoC Energy', transform=rate('SampleTime')),
+                                       Attr('GPU Energy', transform=rate('SampleTime'))], Axis(label='mW'))
+
+  plot(day, 'BB HW Protocol LTE', [Attr('CONNECTED', missing=0)], Axis(label='%'))
+  plot(day, 'BB HW Protocol CDMA2K', [Attr('CONNECTED', missing=0)], Axis(label='%'))
+  plot(day, 'BB HW Protocol 1xEVDO', [Attr('CONNECTED', missing=0)], Axis(label='%'))
+  plot(day, 'BB HW Protocol GSM', [Attr('CONNECTED', missing=0)], Axis(label='%'))
+  plot(day, 'BB HW Protocol WCDMA', [Attr('CONNECTED', missing=0)], Axis(label='%'))
+  plot(day, 'BB HW Protocol UTRAN', [Attr('CONNECTED', missing=0)], Axis(label='%'))
+
+  plot(day, 'CoreLocation Client', [Attr('location', transform=active_inactive, label='Active', shape='lines')],
+                                   Axis(label='yes/no'))
+
+  plot(day, 'Telephony', [Attr('signal')], Axis(label='dBm'))
+
+  net_rate = rate('TimeSinceLastCheck')
+  plot(day, 'Network Usage', [Attr('pdp_ip0_up', transform=net_rate), Attr('pdp_ip0_down', transform=net_rate),
+                              Attr('pdp_ip1_up', transform=net_rate), Attr('pdp_ip1_down', transform=net_rate),
+                              Attr('pdp_ip2_up', transform=net_rate), Attr('pdp_ip2_down', transform=net_rate),
+                              Attr('pdp_ip3_up', transform=net_rate), Attr('pdp_ip3_down', transform=net_rate),
+                              Attr('pdp_ip4_up', transform=net_rate), Attr('pdp_ip4_down', transform=net_rate),
+                             ], Axis(label='bytes/sec'))
 
 
 if sys.argv[1:] == []:
