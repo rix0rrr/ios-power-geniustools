@@ -25,6 +25,11 @@ The end result is something like this (and a bunch more graphs):
 
 ![Example Graph](example.png)
 
+## Notes
+
+Currently, this script has only been tested on iOS 7. It seems that iOS 8 may
+have a different format for the powerlog. Pull requests are welcome.
+
 ## Prerequisites
 
 * [Python](http://www.python.org)
