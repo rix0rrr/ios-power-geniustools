@@ -3,4 +3,5 @@ TODO:
 - Show all BaseBand graphs in the same plot
 - Box plot for location services could be better
 - Network Connections Symptoms, applications most using data
-- ProcessMonitor, applications most using CPU
+- Sleep/Wake with REASON
+- Process usage rate instead of cumulative and highlight offenders

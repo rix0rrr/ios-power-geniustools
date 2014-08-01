@@ -41,6 +41,21 @@ class Mmts(object):
   def days(self):
     return set(mmt.time.date() for mmt in self.mmts)
 
+  def max_val(self, day, event, attr):
+    return max(attr.get(mmt) for mmt in self.get_all(day, event))
+
+  def top_n(self, day, event, attrs, n):
+    """Retain only the top N attributes from the given list of attributes."""
+    ranks = [(self.max_val(day, event, attr), attr) for attr in attrs]
+    ranks.sort(lambda a, b: int(b[0] - a[0]))
+    return [x[1] for x in ranks[:n]]
+
+  def attr_names(self, day, event):
+    """Get all attr names for a given event on the given day"""
+    return sorted(set(key for mmt in self.mmts
+                      if mmt.time.date() == day and mmt.event == event
+                      for key in mmt.attrs.keys()))
+
   def get_all(self, day, event):
     for mmt in self.mmts:
       if mmt.time.date() == day and mmt.event == event:
@@ -60,7 +75,7 @@ class Axis(object):
 
 
 def numberify(x, mmt):
-  return re.sub('[^0-9.-]', '', x)
+  return float(re.sub('[^0-9.-]', '', x))
 
 
 def rate(field):
@@ -92,10 +107,11 @@ class Attr(object):
 
 plots = []
 
-def plot(day, event, y1attrs, y1axis, y2attrs=[], y2axis=Axis(label='?')):
+def plot(day, event, y1attrs, y1axis, y2attrs=[], y2axis=Axis(label='?'), filename=None):
   title = '%s -- %s' % (event, ', '.join(a.name for a in y1attrs + y2attrs))
-
   day_str = day.strftime('%Y-%m-%d')
+
+  filename = filename or title
 
   y2 = """\
       set y2label "{y2label}"
@@ -105,7 +121,7 @@ def plot(day, event, y1attrs, y1axis, y2attrs=[], y2axis=Axis(label='?')):
   script = [textwrap.dedent("""\
       reset
       set terminal png size 800,600
-      set output "{day_str} {title}.png"
+      set output "{day_str} {filename}.png"
 
       set xdata time
       set timefmt "%Y-%m-%d %H:%M:%S"
@@ -125,7 +141,8 @@ def plot(day, event, y1attrs, y1axis, y2attrs=[], y2axis=Axis(label='?')):
       """.format(ylabel=y1axis.label,
                  title=title,
                  day_str=day_str,
-                 y2=y2 if y2attrs else ''))]
+                 y2=y2 if y2attrs else '',
+                 filename=filename))]
 
   script.append('plot ' + ','.join(
     ['"-" using 1:2 with %s title "%s"' % (attr.shape, attr.label) for attr in y1attrs] +
@@ -180,6 +197,10 @@ def make_plots(day):
                               Attr('pdp_ip3_up', transform=net_rate), Attr('pdp_ip3_down', transform=net_rate),
                               Attr('pdp_ip4_up', transform=net_rate), Attr('pdp_ip4_down', transform=net_rate),
                              ], Axis(label='bytes/sec'))
+
+  processes = [Attr(p) for p in mmts.attr_names(day, 'ProcessMonitor')]
+  top_processes = mmts.top_n(day, 'ProcessMonitor', processes, 10)
+  plot(day, 'ProcessMonitor', top_processes, Axis('CPU secs (cum)'), filename='Processes')
 
 
 if sys.argv[1:] == []:
