@@ -1,4 +1,4 @@
-# Get GOOD energy diagnostics for your iDevice
+# Getting GOOD energy diagnostics for your iDevice
 
 There's a lot of misinformation about power usage of iDevices out there, but a
 dearth of actual information and diagnostics tools.
@@ -8,7 +8,7 @@ but unfortunately, the tools they use there are not publicly available.
 
 Until now...
 
-## What's this repository?
+## What's this project?
 
 This toolset is based on [Christopher Anderson's excellent
 work](http://www.lyonanderson.org/blog/2014/02/06/ios-power-diagnostics/) on
